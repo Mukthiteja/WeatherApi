@@ -27,33 +27,61 @@ public class ExternalWeatherClient {
         this.restTemplate = restTemplate;
     }
 
+    /**
+     * Calls OpenWeather Geo API to convert pincode into latitude and longitude.
+     *
+     * @param pincode the Indian postal code
+     * @return array of [lat, lon]
+     */
+    @SuppressWarnings("unchecked")
     public double[] getLatLongFromPincode(String pincode) {
         String url = "http://api.openweathermap.org/geo/1.0/zip?zip=" + pincode + ",IN&appid=" + apiKey;
         try {
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-            Map body = response.getBody();
-            return new double[]{(Double) body.get("lat"), (Double) body.get("lon")};
+            ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(url, (Class<Map<String, Object>>)(Class<?>)Map.class);
+            Map<String, Object> body = response.getBody();
+            if (body == null || !body.containsKey("lat") || !body.containsKey("lon")) {
+                throw new RuntimeException("Invalid response from Geo API: missing lat/lon");
+            }
+            double lat = ((Number) body.get("lat")).doubleValue();
+            double lon = ((Number) body.get("lon")).doubleValue();
+            return new double[]{lat, lon};
         } catch (HttpClientErrorException e) {
-            throw new RuntimeException("Invalid API key or bad request: " + e.getMessage());
+            throw new RuntimeException("Invalid API key or bad request: " + e.getResponseBodyAsString(), e);
         }
     }
 
+    /**
+     * Calls OpenWeather Current Weather API using lat/lon.
+     *
+     * @param lat  Latitude
+     * @param lon  Longitude
+     * @param date The date for which weather is requested (used for DB storage, not API)
+     * @return Weather object with parsed values
+     */
+    @SuppressWarnings("unchecked")
     public Weather getWeatherFromLatLong(double lat, double lon, String date) {
         String url = "https://api.openweathermap.org/data/2.5/weather?lat=" + lat +
                 "&lon=" + lon + "&appid=" + apiKey + "&units=metric";
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(url, (Class<Map<String, Object>>)(Class<?>)Map.class);
+            Map<String, Object> body = response.getBody();
+            if (body == null || !body.containsKey("weather") || !body.containsKey("main")) {
+                throw new RuntimeException("Invalid response from Weather API: missing weather or main data");
+            }
 
-        ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-        Map body = response.getBody();
+            List<Map<String, Object>> weatherList = (List<Map<String, Object>>) body.get("weather");
+            Map<String, Object> weatherDetails = weatherList.get(0);
+            Map<String, Object> mainDetails = (Map<String, Object>) body.get("main");
 
-        Weather w = new Weather();
-        Map weatherDetails = ((List<Map>) body.get("weather")).get(0);
-        Map mainDetails = (Map) body.get("main");
+            Weather w = new Weather();
+            w.setDescription((String) weatherDetails.get("description"));
+            w.setTemperature(((Number) mainDetails.get("temp")).doubleValue());
+            w.setHumidity(((Number) mainDetails.get("humidity")).doubleValue());
+            w.setDate(date);
 
-        w.setDescription((String) weatherDetails.get("description"));
-        w.setTemperature(((Number) mainDetails.get("temp")).doubleValue());
-        w.setHumidity(((Number) mainDetails.get("humidity")).doubleValue());
-        w.setDate(date);
-
-        return w;
+            return w;
+        } catch (HttpClientErrorException e) {
+            throw new RuntimeException("Invalid API key or bad request: " + e.getResponseBodyAsString(), e);
+        }
     }
 }
