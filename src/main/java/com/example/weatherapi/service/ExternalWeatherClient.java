@@ -5,22 +5,37 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Handles all external API calls to OpenWeatherMap for:
+ * - Geolocation (lat/lon) from pincode
+ * - Weather data from lat/lon
+ */
 @Service
 public class ExternalWeatherClient {
+
     @Value("${openweather.api.key}")
     private String apiKey;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public ExternalWeatherClient(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public double[] getLatLongFromPincode(String pincode) {
         String url = "http://api.openweathermap.org/geo/1.0/zip?zip=" + pincode + ",IN&appid=" + apiKey;
-        ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-        Map body = response.getBody();
-        return new double[]{(Double) body.get("lat"), (Double) body.get("lon")};
+        try {
+            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+            Map body = response.getBody();
+            return new double[]{(Double) body.get("lat"), (Double) body.get("lon")};
+        } catch (HttpClientErrorException e) {
+            throw new RuntimeException("Invalid API key or bad request: " + e.getMessage());
+        }
     }
 
     public Weather getWeatherFromLatLong(double lat, double lon, String date) {
@@ -37,7 +52,7 @@ public class ExternalWeatherClient {
         w.setDescription((String) weatherDetails.get("description"));
         w.setTemperature(((Number) mainDetails.get("temp")).doubleValue());
         w.setHumidity(((Number) mainDetails.get("humidity")).doubleValue());
-        w.setDate(date); // use requested date
+        w.setDate(date);
 
         return w;
     }
